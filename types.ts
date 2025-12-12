@@ -12,6 +12,8 @@ export interface PlanningData {
   cpl: number; // Cost per Lead (INR)
   taxPercent: number;
   receivedBudget: number; // Now mandatory
+  calculationMode: 'revenue' | 'budget'; // New: Determines driving metric
+  budgetInput: number; // New: Used when mode is 'budget'
 }
 
 export interface CalculatedMetrics {

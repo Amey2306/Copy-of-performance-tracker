@@ -208,7 +208,20 @@ export const PerformanceTracker: React.FC<Props> = ({ weeks, actuals, plan, onUp
             </tr>
              <tr className="hover:bg-blue-900/10">
                <td className="px-2 py-1 text-left text-[10px] font-bold text-blue-400 border-r border-slate-800 pl-8">Actual</td>
-               {weeks.map(w => <td key={w.id} className="px-1 py-1"><InputCell weekId={w.id} field="spends" value={actuals[w.id]?.spends} onUpdateActual={onUpdateActual} /></td>)}
+               {weeks.map(w => {
+                 const rawSpends = actuals[w.id]?.spends;
+                 const displayValue = rawSpends !== undefined ? Math.round(rawSpends * taxMult) : undefined;
+                 return (
+                    <td key={w.id} className="px-1 py-1">
+                      <InputCell 
+                        weekId={w.id} 
+                        field="spends" 
+                        value={displayValue} 
+                        onUpdateActual={(wid, f, val) => onUpdateActual(wid, f, val / taxMult)} 
+                      />
+                    </td>
+                 );
+               })}
                <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatCurrency(getTotalActual('spends'))}</td>
             </tr>
              <tr className="bg-slate-900 border-b border-slate-800">

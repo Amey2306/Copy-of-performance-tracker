@@ -20,6 +20,8 @@ const INITIAL_PLAN: PlanningData = {
   cpl: 4819,
   taxPercent: 18,
   receivedBudget: 0,
+  calculationMode: 'revenue',
+  budgetInput: 0,
 };
 
 const INITIAL_MEDIA_PLAN: MediaChannel[] = [
@@ -109,24 +111,54 @@ const INITIAL_POCS: Poc[] = [
 
 // --- HELPER FUNCTIONS MOVED OUTSIDE COMPONENT ---
 const calculateMetrics = (plan: PlanningData): CalculatedMetrics => {
-  const digitalBV = plan.overallBV * (plan.digitalContributionPercent / 100);
-  const presalesBV = plan.overallBV * (plan.presalesContributionPercent / 100);
+  let digitalBV = 0;
+  let overallBV = 0;
+  let baseBudget = 0;
+
+  if (plan.calculationMode === 'budget') {
+     // Budget Driven Calculation
+     baseBudget = plan.budgetInput;
+     
+     // Funnel Reverse Calculation
+     const targetLeads = plan.cpl > 0 ? baseBudget / plan.cpl : 0;
+     const targetWalkins = targetLeads * (plan.ltwPercent / 100);
+     const digitalUnits = targetWalkins * (plan.wtbPercent / 100);
+     
+     digitalBV = digitalUnits * plan.ats; // Crores
+     
+     // Overall BV derived from Digital contribution
+     overallBV = plan.digitalContributionPercent > 0 ? digitalBV / (plan.digitalContributionPercent / 100) : 0;
+
+  } else {
+     // Revenue Driven Calculation (Default)
+     overallBV = plan.overallBV;
+     digitalBV = overallBV * (plan.digitalContributionPercent / 100);
+     
+     const digitalUnits = plan.ats > 0 ? digitalBV / plan.ats : 0;
+     const targetWalkins = plan.wtbPercent > 0 ? digitalUnits / (plan.wtbPercent / 100) : 0;
+     const targetLeads = plan.ltwPercent > 0 ? targetWalkins / (plan.ltwPercent / 100) : 0;
+     
+     baseBudget = targetLeads * plan.cpl;
+  }
+
+  // Common Calculations
+  const presalesBV = overallBV * (plan.presalesContributionPercent / 100);
+  const totalUnits = plan.ats > 0 ? overallBV / plan.ats : 0;
+  const digitalUnits = plan.ats > 0 ? digitalBV / plan.ats : 0;
+  const presalesUnits = plan.ats > 0 ? presalesBV / plan.ats : 0;
   
-  const totalUnits = plan.overallBV / plan.ats;
-  const digitalUnits = digitalBV / plan.ats;
-  const presalesUnits = presalesBV / plan.ats;
-  
-  const targetWalkins = digitalUnits / (plan.wtbPercent / 100);
-  const targetLeads = targetWalkins / (plan.ltwPercent / 100);
-  
-  const baseBudget = targetLeads * plan.cpl;
+  // Recalculate Funnel based on settled Digital Units to ensure consistency
+  // (In budget mode, these are already aligned, in revenue mode, this aligns them)
+  const targetWalkins = plan.wtbPercent > 0 ? digitalUnits / (plan.wtbPercent / 100) : 0;
+  const targetLeads = plan.ltwPercent > 0 ? targetWalkins / (plan.ltwPercent / 100) : 0;
+
   const taxAmount = baseBudget * (plan.taxPercent / 100);
   const allInBudget = baseBudget + taxAmount;
 
-  const cpw = baseBudget / targetWalkins;
-  const cpb = baseBudget / digitalUnits; // Cost per digital booking
-  const revenue = plan.overallBV * 10000000; // Convert Cr to actual
-  const targetCOM = (allInBudget / (digitalBV * 10000000)) * 100;
+  const cpw = targetWalkins > 0 ? baseBudget / targetWalkins : 0;
+  const cpb = digitalUnits > 0 ? baseBudget / digitalUnits : 0;
+  const revenue = overallBV * 10000000; // Convert Cr to actual
+  const targetCOM = (digitalBV > 0) ? (allInBudget / (digitalBV * 10000000)) * 100 : 0;
 
   return { 
     totalUnits, digitalUnits, presalesUnits, digitalBV, presalesBV, 
@@ -244,9 +276,26 @@ const App = () => {
   }
 
   // Handlers
-  const updateProjectPlan = (id: string, key: keyof PlanningData, value: number) => {
+  const updateProjectPlan = (id: string, key: keyof PlanningData, value: number | string) => {
     if (currentUser.role === UserRole.MANAGER) return; // Guard
-    setProjects(prev => prev.map(p => p.id === id ? { ...p, plan: { ...p.plan, [key]: value } } : p));
+    
+    setProjects(prev => prev.map(p => {
+        if (p.id !== id) return p;
+        
+        const updatedPlan = { ...p.plan, [key]: value };
+        
+        // SYNC LOGIC: If toggling calculation mode, update the new input to match current output
+        if (key === 'calculationMode') {
+            const currentMetrics = calculateMetrics(p.plan);
+            if (value === 'budget') {
+                updatedPlan.budgetInput = currentMetrics.baseBudget;
+            } else {
+                updatedPlan.overallBV = currentMetrics.revenue / 10000000; // Back to Cr
+            }
+        }
+        
+        return { ...p, plan: updatedPlan };
+    }));
   };
 
   const updateProjectField = (id: string, field: 'receivedBudget' | 'otherSpends', value: number) => {

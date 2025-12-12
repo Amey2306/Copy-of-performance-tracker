@@ -1,12 +1,12 @@
 
 import React from 'react';
 import { PlanningData, CalculatedMetrics, ViewMode } from '../types';
-import { Calculator, Target, Info } from 'lucide-react';
+import { Calculator, Target, Info, ArrowLeftRight } from 'lucide-react';
 
 interface Props {
   data: PlanningData;
   metrics: CalculatedMetrics;
-  onChange: (key: keyof PlanningData, value: number) => void;
+  onChange: (key: keyof PlanningData, value: any) => void;
   viewMode: ViewMode;
   readOnly?: boolean;
 }
@@ -18,15 +18,16 @@ interface InputFieldProps {
   disabled?: boolean;
   suffix?: string;
   prefix?: string;
+  className?: string;
 }
 
 // Moved outside to prevent re-mounting issues
-const InputField: React.FC<InputFieldProps> = ({ label, value, onChange, disabled, suffix, prefix }) => {
+const InputField: React.FC<InputFieldProps> = ({ label, value, onChange, disabled, suffix, prefix, className }) => {
   // Generate a unique ID for accessibility linkage
   const inputId = React.useId();
 
   return (
-    <div className="relative group">
+    <div className={`relative group ${className || ''}`}>
        <label 
          htmlFor={inputId}
          className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 group-focus-within:text-brand-400 transition-colors cursor-pointer"
@@ -56,6 +57,7 @@ const InputField: React.FC<InputFieldProps> = ({ label, value, onChange, disable
               transition-all duration-200 outline-none 
               disabled:bg-slate-900 disabled:text-slate-600 disabled:cursor-not-allowed disabled:border-slate-800
               ${prefix ? 'pl-8' : ''} ${suffix ? 'pr-8' : ''}
+              ${disabled ? 'opacity-80' : ''}
             `}
           />
          {suffix && (
@@ -78,9 +80,25 @@ export const PlanningSection: React.FC<Props> = ({ data, metrics, onChange, view
 
   const taxMult = viewMode === ViewMode.AGENCY ? (1 + data.taxPercent / 100) : 1;
 
+  // Logic for display values based on Calculation Mode
+  const isBudgetMode = data.calculationMode === 'budget';
+  
+  // Overall BV Display: If in Budget Mode, it's calculated from Revenue. If in Revenue Mode, it's the Input.
+  const displayOverallBV = isBudgetMode ? (metrics.revenue / 10000000) : data.overallBV;
+  
+  // Budget Display: If in Budget Mode, it's the Input. If in Revenue Mode, it's Calculated.
+  const rawBudgetVal = isBudgetMode ? data.budgetInput : metrics.baseBudget;
+  const displayBudget = Math.round(rawBudgetVal * taxMult);
+
+  const handleModeToggle = () => {
+    if (readOnly) return;
+    const newMode = isBudgetMode ? 'revenue' : 'budget';
+    onChange('calculationMode', newMode);
+  };
+
   return (
     <div className="bg-slate-900 rounded-2xl shadow-xl border border-slate-800 overflow-hidden mb-8 animate-in fade-in duration-300">
-      <div className="bg-slate-900 border-b border-slate-800 p-4 md:p-6 flex justify-between items-center">
+      <div className="bg-slate-900 border-b border-slate-800 p-4 md:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Target className="w-5 h-5 text-brand-500" />
@@ -88,11 +106,31 @@ export const PlanningSection: React.FC<Props> = ({ data, metrics, onChange, view
           </h2>
           <p className="text-sm text-slate-500 mt-1">Define the anchors for your funnel calculation.</p>
         </div>
-        {readOnly && (
-          <div className="bg-amber-950/40 text-amber-400 text-xs font-bold px-3 py-1.5 rounded-full border border-amber-900 flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5" /> Plan Locked
-          </div>
-        )}
+        
+        <div className="flex items-center gap-3">
+            {/* Calculation Mode Toggle */}
+            <div className={`flex items-center bg-slate-950 border border-slate-800 rounded-lg p-1 ${readOnly ? 'opacity-60 pointer-events-none' : ''}`}>
+                <button
+                    onClick={() => !isBudgetMode && handleModeToggle()}
+                    className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 ${!isBudgetMode ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                >
+                    Target Revenue
+                </button>
+                <div className="px-1 text-slate-600"><ArrowLeftRight className="w-3 h-3" /></div>
+                <button
+                    onClick={() => isBudgetMode && handleModeToggle()}
+                    className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 ${isBudgetMode ? 'bg-brand-600 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
+                >
+                    Spending Budget
+                </button>
+            </div>
+
+            {readOnly && (
+            <div className="bg-amber-950/40 text-amber-400 text-xs font-bold px-3 py-1.5 rounded-full border border-amber-900 flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5" /> Plan Locked
+            </div>
+            )}
+        </div>
       </div>
 
       <div className="p-6 md:p-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-8">
@@ -101,10 +139,11 @@ export const PlanningSection: React.FC<Props> = ({ data, metrics, onChange, view
           <h3 className="text-xs font-bold text-slate-600 uppercase border-b border-slate-800 pb-2">Revenue Targets</h3>
           
           <InputField 
-            label="Overall BV Target (Cr)"
-            value={data.overallBV}
+            label={isBudgetMode ? "Calculated BV (Cr)" : "Overall BV Target (Cr)"}
+            value={parseFloat(displayOverallBV.toFixed(2))}
             onChange={(val: number) => onChange('overallBV', val)}
-            disabled={readOnly}
+            disabled={readOnly || isBudgetMode}
+            className={isBudgetMode ? "opacity-75" : ""}
           />
           <InputField 
             label="Avg Ticket Size (Cr)"
@@ -161,12 +200,20 @@ export const PlanningSection: React.FC<Props> = ({ data, metrics, onChange, view
             disabled={readOnly}
             prefix="₹"
           />
-          <InputField 
+           <InputField 
             label="Tax / Agency Fee"
             value={data.taxPercent}
             onChange={(val: number) => onChange('taxPercent', val)}
             disabled={readOnly}
             suffix="%"
+          />
+          <InputField 
+            label={`Planned Budget ${viewMode === ViewMode.AGENCY ? '(Gross)' : '(Net)'}`}
+            value={displayBudget}
+            onChange={(val: number) => onChange('budgetInput', val / taxMult)}
+            disabled={readOnly || !isBudgetMode}
+            prefix="₹"
+            className={!isBudgetMode ? "opacity-75" : "ring-1 ring-brand-500/50 rounded-lg"}
           />
         </div>
 
