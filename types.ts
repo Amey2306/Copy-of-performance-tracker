@@ -1,0 +1,142 @@
+
+export interface PlanningData {
+  overallBV: number; // Crores
+  ats: number; // Crores
+  digitalContributionPercent: number;
+  presalesContributionPercent: number;
+  brandContributionPercent: number; // New
+  referralContributionPercent: number; // New
+  cpContributionPercent: number; // New
+  ltwPercent: number; // Lead to Walkin
+  wtbPercent: number; // Walkin to Booking
+  cpl: number; // Cost per Lead (INR)
+  taxPercent: number;
+  receivedBudget: number; // Now mandatory
+}
+
+export interface CalculatedMetrics {
+  totalUnits: number;
+  digitalUnits: number;
+  presalesUnits: number;
+  digitalBV: number;
+  presalesBV: number;
+  targetWalkins: number;
+  targetLeads: number;
+  baseBudget: number;
+  taxAmount: number;
+  allInBudget: number;
+  cpw: number;
+  cpb: number;
+  revenue: number; // INR
+  targetCOM: number;
+}
+
+export interface WeeklyData {
+  id: number;
+  weekLabel: string;
+  dateRange: string;
+  // Simulation Inputs (Percentages)
+  spendDistribution: number;
+  leadDistribution: number;
+  adConversion: number; // Planned L2W %
+  
+  // Calculated Planned Values
+  leads: number;
+  cumulativeLeads: number;
+  ap: number;
+  cumulativeAp: number;
+  ad: number;
+  cumulativeAd: number;
+  spendsBase: number;
+  spendsAllIn: number;
+}
+
+// New Interface for Actual Performance Data
+export interface WeeklyActuals {
+  weekId: number;
+  leads?: number;
+  ap?: number;
+  ad?: number;
+  spends?: number; // Actual Base Spend
+  bookings?: number; // Digital Bookings
+  presalesBookings?: number; // Presales/Offline Bookings
+  brandBookings?: number; // Brand (ATL/BTL) Bookings
+  referralBookings?: number; // Referral Bookings
+  cpBookings?: number; // Channel Partner Bookings
+}
+
+export interface MediaChannel {
+  id: string;
+  name: string;
+  allocationPercent: number;
+  estimatedCpl: number;
+  budget?: number; 
+  leads?: number;
+  // Advanced Funnel Metrics
+  capiPercent: number; // Qualified Leads %
+  capiToApPercent: number; // Conversion to Site Visit Proposed
+  apToAdPercent: number; // Conversion to Walkin
+  isCustom?: boolean;
+}
+
+// NEW: Channel Level Performance Tracking
+export interface ChannelPerformance {
+  channelId: string;
+  spends: number;
+  leads: number; // Grand Total
+  openAttempted: number;
+  contacted: number;
+  assignedToSales: number;
+  ap: number; // Appointment Proposed
+  ad: number; // Site Visit Done
+  bookings: number;
+  lost: number;
+}
+
+export interface Poc {
+  id: string;
+  name: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  location: string;
+  poc: string;
+  status: 'Planning' | 'Active' | 'Completed';
+  plan: PlanningData;
+  otherSpends: number; // New: Non-performance marketing spends
+  manualMediaBudget?: number; // Override for simulation
+  mediaPlan: MediaChannel[]; 
+  channelPerformance: ChannelPerformance[]; // New field
+  weeks: WeeklyData[];
+  actuals: Record<number, WeeklyActuals>; 
+  isLocked: boolean; 
+}
+
+export enum ViewMode {
+  BRAND = 'BRAND', // Shows Base Spends
+  AGENCY = 'AGENCY' // Shows All-in Spends
+}
+
+export enum TabView {
+  PLANNING = 'PLANNING',
+  MEDIA_MIX = 'MEDIA_MIX',
+  WOW_PLAN = 'WOW_PLAN',
+  PERFORMANCE = 'PERFORMANCE',
+  CHANNEL_TRACKER = 'CHANNEL_TRACKER' // New Tab
+}
+
+// --- AUTH TYPES ---
+export enum UserRole {
+  GM = 'General Manager', // View All, Edit All, Delete Project, Unlock Plan
+  SM = 'Senior Manager',  // View All, Edit Media/WoW, Read Only Plan, No Delete
+  MANAGER = 'Manager'     // View Assigned Only, Edit Actuals Only, Read Only Plan/Media/WoW
+}
+
+export interface User {
+  id: string;
+  name: string;
+  role: UserRole;
+  avatar?: string;
+}
