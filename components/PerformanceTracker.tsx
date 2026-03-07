@@ -1,6 +1,13 @@
 
-import React from 'react';
-import { WeeklyData, WeeklyActuals, ViewMode, PlanningData } from '../types';
+import React, { useMemo } from 'react';
+import { WeeklyData, WeeklyActuals, ViewMode, PlanningData, TimeGranularity } from '../types';
+
+interface OngoingStatus {
+    weekId: number;
+    month: string;
+    quarter: string;
+    half: string;
+}
 
 interface Props {
   weeks: WeeklyData[];
@@ -8,305 +15,126 @@ interface Props {
   plan: PlanningData;
   onUpdateActual: (weekId: number, field: keyof WeeklyActuals, value: number) => void;
   viewMode: ViewMode;
+  granularity: TimeGranularity;
+  ongoingStatus: OngoingStatus;
 }
 
-// Moved outside
-const InputCell = ({ weekId, field, value, onUpdateActual }: { weekId: number, field: keyof WeeklyActuals, value: number | undefined, onUpdateActual: (id: number, f: keyof WeeklyActuals, v: number) => void }) => (
+const InputCell = ({ weekId, field, value, onUpdateActual, disabled, isOngoing }: { weekId: number, field: keyof WeeklyActuals, value: number | undefined, onUpdateActual: (id: number, f: keyof WeeklyActuals, v: number) => void, disabled: boolean, isOngoing: boolean }) => (
   <input
     type="number"
     value={value || ''}
+    disabled={disabled}
     placeholder="-"
     onChange={(e) => onUpdateActual(weekId, field, parseFloat(e.target.value) || 0)}
-    className="w-full text-right bg-blue-900/30 hover:bg-blue-900/50 border border-transparent rounded px-1 py-1 text-xs font-medium text-blue-200 focus:ring-1 focus:ring-blue-500 outline-none placeholder-blue-800"
+    className={`w-full text-right ${isOngoing ? 'bg-brand-900/40 border-brand-500/50 text-brand-200' : 'bg-blue-900/30 border-transparent text-blue-200'} hover:bg-opacity-60 border rounded px-1 py-1 text-xs font-bold focus:ring-1 focus:ring-brand-500 outline-none ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
   />
 );
 
-const RowHeader = ({ label, sub }: { label: string, sub?: string }) => (
-  <div className="flex flex-col justify-center h-full">
-    <span className="font-bold text-slate-300">{label}</span>
-    {sub && <span className="text-[10px] font-normal text-slate-500">{sub}</span>}
-  </div>
-);
-
-export const PerformanceTracker: React.FC<Props> = ({ weeks, actuals, plan, onUpdateActual, viewMode }) => {
-  
-  const formatCurrency = (val: number | undefined) => {
-    if (val === undefined) return '-';
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val);
-  };
-
-  const formatNumber = (val: number | undefined) => {
-    if (val === undefined) return '-';
-    return val.toLocaleString(undefined, { maximumFractionDigits: 0 });
-  };
-
-  const formatPercent = (val: number | undefined) => {
-    if (val === undefined || isNaN(val) || !isFinite(val)) return '-';
-    return `${val.toFixed(2)}%`;
-  };
-
-  // Tax multiplier for spends display
+export const PerformanceTracker: React.FC<Props> = ({ weeks, actuals, plan, onUpdateActual, viewMode, granularity, ongoingStatus }) => {
+  const formatCurrency = (val: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val);
+  const formatPercent = (val: number) => `${val.toFixed(1)}%`;
   const taxMult = viewMode === ViewMode.AGENCY ? (1 + plan.taxPercent/100) : 1;
 
-  // Helper: Calculate cumulative actuals on the fly
-  const getCumulativeActuals = (uptoIndex: number, field: keyof WeeklyActuals) => {
-    let sum = 0;
-    for (let i = 0; i <= uptoIndex; i++) {
-      let val = actuals[weeks[i].id]?.[field] || 0;
-      if (field === 'spends') val = val * taxMult; 
-      sum += val;
-    }
-    return sum;
-  };
+  const aggregatedItems = useMemo(() => {
+    const buckets: Record<string, any> = {};
+    weeks.forEach(w => {
+      let key = "";
+      let isMatch = false;
+      if (granularity === TimeGranularity.WEEKLY) {
+          key = `W${w.id + 1}`;
+          isMatch = w.id === ongoingStatus.weekId;
+      }
+      else if (granularity === TimeGranularity.MONTHLY) {
+          key = w.monthLabel;
+          isMatch = key === ongoingStatus.month;
+      }
+      else if (granularity === TimeGranularity.QUARTERLY) {
+          key = w.quarterLabel;
+          isMatch = key === ongoingStatus.quarter;
+      }
+      else {
+          key = w.halfYearLabel;
+          isMatch = key === ongoingStatus.half;
+      }
 
-  // Totals for the "Total" column
-  const getTotalActual = (field: keyof WeeklyActuals) => {
-    const rawTotal = weeks.reduce((acc, w) => acc + (actuals[w.id]?.[field] || 0), 0);
-    if (field === 'spends') return rawTotal * taxMult;
-    return rawTotal;
-  };
+      const act = actuals[w.id] || {};
+      if (!buckets[key]) {
+        buckets[key] = { 
+          label: key, 
+          isOngoing: isMatch, 
+          dateRange: w.dateRange, 
+          ids: [w.id],
+          planLeads: 0, actLeads: 0, planAd: 0, actAd: 0, planSpend: 0, actSpend: 0, actBookings: 0 
+        };
+      } else {
+          buckets[key].ids.push(w.id);
+      }
+      buckets[key].planLeads += w.leads;
+      buckets[key].actLeads += (act.leads || 0);
+      buckets[key].planAd += w.ad;
+      buckets[key].actAd += (act.ad || 0);
+      buckets[key].planSpend += (viewMode === ViewMode.AGENCY ? w.spendsAllIn : w.spendsBase);
+      buckets[key].actSpend += (act.spends || 0) * taxMult;
+      buckets[key].actBookings += (act.bookings || 0);
+    });
+    return Object.values(buckets);
+  }, [weeks, actuals, granularity, viewMode, taxMult, ongoingStatus]);
+
+  const totalActSpendRaw = weeks.reduce((a, b) => a + (actuals[b.id]?.spends || 0), 0);
+  const totalActSpend = totalActSpendRaw * taxMult;
+  const totalPlanLeads = weeks.reduce((a, b) => a + b.leads, 0);
+  const totalActLeads = weeks.reduce((a, b) => a + (actuals[b.id]?.leads || 0), 0);
 
   return (
-    <div className="bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden flex flex-col mt-4">
+    <div className="bg-slate-900 rounded-xl shadow-lg border border-slate-800 overflow-hidden flex flex-col mt-4 animate-in fade-in duration-300">
       <div className="bg-slate-950 p-4 border-b border-slate-800 flex justify-between items-center">
-        <div>
-          <h2 className="text-lg font-bold text-white">Performance Tracker</h2>
-          <p className="text-sm text-slate-400">Enter actuals in blue cells. Ratios calculate automatically.</p>
-        </div>
-        <div className="flex gap-4 text-xs">
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 bg-blue-900/30 border border-blue-700 rounded"></div>
-            <span className="text-slate-400">Actuals (Input)</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 bg-slate-800 border border-slate-700 rounded"></div>
-            <span className="text-slate-400">Plan (Target)</span>
-          </div>
-        </div>
+        <div><h2 className="text-lg font-bold text-white">Performance Matrix ({granularity})</h2><p className="text-sm text-slate-400">Comparing Planned targets vs Actual execution.</p></div>
       </div>
-
       <div className="overflow-x-auto pb-4 custom-scrollbar">
-        <table className="min-w-full text-xs text-right border-collapse">
+        <table className="min-w-full text-xs text-right border-separate border-spacing-0">
           <thead>
             <tr className="bg-slate-950 text-slate-400 font-semibold uppercase tracking-wider">
               <th className="sticky left-0 bg-slate-950 px-4 py-3 text-left w-40 z-20 border-b border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]">Metric</th>
-              <th className="px-2 py-3 bg-slate-950 border-b border-slate-800 text-left min-w-[60px]">Type</th>
-              {weeks.map((week) => (
-                <th key={week.id} className="px-2 py-3 border-b border-slate-800 min-w-[100px] whitespace-nowrap">
-                  <div className="text-slate-200">{week.weekLabel}</div>
-                  <div className="text-[10px] text-slate-500 font-normal">{week.dateRange}</div>
+              {aggregatedItems.map((item, i) => (
+                <th key={i} className={`px-2 py-3 border-b border-slate-800 min-w-[130px] whitespace-nowrap relative ${item.isOngoing ? 'ring-2 ring-inset ring-brand-500 bg-brand-900/10' : ''}`}>
+                  {item.isOngoing && (
+                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 bg-brand-500 text-[8px] text-white px-1.5 py-0.5 rounded-full font-black animate-pulse shadow-lg">ONGOING</div>
+                  )}
+                  <div className={`${item.isOngoing ? 'text-brand-400' : 'text-slate-200'} font-black`}>{item.label}</div>
+                  <div className="text-[10px] text-slate-500 font-normal">{granularity === TimeGranularity.WEEKLY ? item.dateRange : 'Aggregate'}</div>
                 </th>
               ))}
               <th className="sticky right-0 bg-slate-950 px-4 py-3 border-b border-slate-800 z-20 w-28 text-white shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">Total</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/50">
-
-            {/* --- LEADS GROUP --- */}
-            <tr className="hover:bg-slate-800/40 bg-slate-900 border-t border-slate-800">
-               <td rowSpan={3} className="sticky left-0 bg-slate-900 px-4 py-2 text-left z-10 border-r border-slate-800 border-b align-top pt-4">
-                <RowHeader label="Leads" />
-               </td>
-               <td className="px-2 py-1 text-left text-[10px] text-slate-500 border-r border-slate-800 pl-8">Target</td>
-               {weeks.map(w => <td key={w.id} className="px-2 py-1 text-slate-500">{Math.round(w.leads)}</td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 text-slate-500 border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{Math.round(weeks.reduce((a,b) => a+b.leads, 0))}</td>
+            <tr>
+               <td className="sticky left-0 bg-slate-900 px-4 py-2 text-left font-bold text-slate-400 z-10 border-r border-slate-800">Leads (Actual)</td>
+               {aggregatedItems.map((item, i) => (
+                 <td key={i} className={`px-1 py-1 ${item.isOngoing ? 'bg-brand-900/5' : ''}`}>
+                   {granularity === TimeGranularity.WEEKLY ? (
+                     <InputCell weekId={item.ids[0]} field="leads" value={actuals[item.ids[0]]?.leads} onUpdateActual={onUpdateActual} disabled={false} isOngoing={item.isOngoing} />
+                   ) : <span className={`font-black px-2 ${item.isOngoing ? 'text-brand-400' : 'text-blue-200'}`}>{item.actLeads.toLocaleString()}</span>}
+                 </td>
+               ))}
+               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{totalActLeads.toLocaleString()}</td>
             </tr>
-             <tr className="hover:bg-blue-900/10">
-               <td className="px-2 py-1 text-left text-[10px] font-bold text-blue-400 border-r border-slate-800 pl-8">Actual</td>
-               {weeks.map(w => <td key={w.id} className="px-1 py-1"><InputCell weekId={w.id} field="leads" value={actuals[w.id]?.leads} onUpdateActual={onUpdateActual} /></td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatNumber(getTotalActual('leads'))}</td>
+            <tr className="bg-slate-950/20">
+               <td className="sticky left-0 bg-slate-900 px-4 py-2 text-left font-bold text-slate-500 z-10 border-r border-slate-800 italic">Leads Delivery %</td>
+               {aggregatedItems.map((item, i) => <td key={i} className={`px-2 py-2 font-bold ${item.actLeads >= item.planLeads ? 'text-emerald-400' : 'text-rose-400'} ${item.isOngoing ? 'bg-brand-900/5' : ''}`}>{item.planLeads > 0 ? formatPercent((item.actLeads / item.planLeads)*100) : '-'}</td>)}
+               <td className="sticky right-0 bg-slate-900 px-4 py-2 border-l border-slate-800 text-slate-500 italic shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{totalPlanLeads > 0 ? formatPercent((totalActLeads/totalPlanLeads)*100) : '-'}</td>
             </tr>
-             <tr className="bg-slate-900 border-b border-slate-800">
-               <td className="px-2 py-1 text-left text-[10px] text-slate-600 border-r border-slate-800 pl-8">Cumul. Act</td>
-               {weeks.map((w, i) => <td key={w.id} className="px-2 py-1 text-slate-600 italic">{formatNumber(getCumulativeActuals(i, 'leads'))}</td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">-</td>
+            <tr>
+               <td className="sticky left-0 bg-slate-900 px-4 py-2 text-left font-bold text-slate-400 z-10 border-r border-slate-800">Spends (Actual)</td>
+               {aggregatedItems.map((item, i) => (
+                 <td key={i} className={`px-1 py-1 ${item.isOngoing ? 'bg-brand-900/5' : ''}`}>
+                   {granularity === TimeGranularity.WEEKLY ? (
+                     <InputCell weekId={item.ids[0]} field="spends" value={actuals[item.ids[0]]?.spends ? Math.round(actuals[item.ids[0]]?.spends! * taxMult) : undefined} onUpdateActual={(wid, f, v) => onUpdateActual(wid, f, v / taxMult)} disabled={false} isOngoing={item.isOngoing} />
+                   ) : <span className={`font-black px-2 ${item.isOngoing ? 'text-brand-400' : 'text-blue-200'}`}>{formatCurrency(item.actSpend)}</span>}
+                 </td>
+               ))}
+               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatCurrency(totalActSpend)}</td>
             </tr>
-
-            {/* --- AP GROUP --- */}
-            <tr className="hover:bg-slate-800/40 bg-slate-900 border-t border-slate-800">
-               <td rowSpan={3} className="sticky left-0 bg-slate-900 px-4 py-2 text-left z-10 border-r border-slate-800 border-b align-top pt-4">
-                 <RowHeader label="AP" sub="(Site Visits Proposed)" />
-               </td>
-               <td className="px-2 py-1 text-left text-[10px] text-slate-500 border-r border-slate-800 pl-8">Target</td>
-               {weeks.map(w => <td key={w.id} className="px-2 py-1 text-slate-500">{Math.round(w.ap)}</td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 text-slate-500 border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{Math.round(weeks.reduce((a,b) => a+b.ap, 0))}</td>
-            </tr>
-             <tr className="hover:bg-blue-900/10">
-               <td className="px-2 py-1 text-left text-[10px] font-bold text-blue-400 border-r border-slate-800 pl-8">Actual</td>
-               {weeks.map(w => <td key={w.id} className="px-1 py-1"><InputCell weekId={w.id} field="ap" value={actuals[w.id]?.ap} onUpdateActual={onUpdateActual} /></td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatNumber(getTotalActual('ap'))}</td>
-            </tr>
-             <tr className="bg-slate-900 border-b border-slate-800">
-               <td className="px-2 py-1 text-left text-[10px] text-slate-600 border-r border-slate-800 pl-8">Cumul. Act</td>
-               {weeks.map((w, i) => <td key={w.id} className="px-2 py-1 text-slate-600 italic">{formatNumber(getCumulativeActuals(i, 'ap'))}</td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">-</td>
-            </tr>
-
-            {/* --- AD GROUP --- */}
-            <tr className="hover:bg-slate-800/40 bg-slate-900 border-t border-slate-800">
-               <td rowSpan={3} className="sticky left-0 bg-slate-900 px-4 py-2 text-left z-10 border-r border-slate-800 border-b align-top pt-4">
-                 <RowHeader label="AD / Walkins" sub="(Site Visits Done)" />
-               </td>
-               <td className="px-2 py-1 text-left text-[10px] text-slate-500 border-r border-slate-800 pl-8">Target</td>
-               {weeks.map(w => <td key={w.id} className="px-2 py-1 text-slate-500">{Math.round(w.ad)}</td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 text-slate-500 border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{Math.round(weeks.reduce((a,b) => a+b.ad, 0))}</td>
-            </tr>
-             <tr className="hover:bg-blue-900/10">
-               <td className="px-2 py-1 text-left text-[10px] font-bold text-blue-400 border-r border-slate-800 pl-8">Actual</td>
-               {weeks.map(w => <td key={w.id} className="px-1 py-1"><InputCell weekId={w.id} field="ad" value={actuals[w.id]?.ad} onUpdateActual={onUpdateActual} /></td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatNumber(getTotalActual('ad'))}</td>
-            </tr>
-             <tr className="bg-slate-900 border-b border-slate-800">
-               <td className="px-2 py-1 text-left text-[10px] text-slate-600 border-r border-slate-800 pl-8">Cumul. Act</td>
-               {weeks.map((w, i) => <td key={w.id} className="px-2 py-1 text-slate-600 italic">{formatNumber(getCumulativeActuals(i, 'ad'))}</td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">-</td>
-            </tr>
-
-             {/* --- BOOKINGS GROUP --- */}
-            <tr className="hover:bg-slate-800/40 bg-slate-900 border-t border-slate-800">
-               <td rowSpan={6} className="sticky left-0 bg-slate-900 px-4 py-2 text-left z-10 border-r border-slate-800 border-b align-top pt-4">
-                 <RowHeader label="Bookings" sub="By Source" />
-               </td>
-               <td className="px-2 py-1 text-left text-[10px] text-slate-500 border-r border-slate-800 pl-8">Tgt Digital</td>
-               {weeks.map(w => <td key={w.id} className="px-2 py-1 text-slate-500">{Math.round(w.ad * (plan.wtbPercent / 100))}</td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 text-slate-500 border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{Math.round(weeks.reduce((a,b) => a + (b.ad * (plan.wtbPercent/100)), 0))}</td>
-            </tr>
-             <tr className="hover:bg-blue-900/10">
-               <td className="px-2 py-1 text-left text-[10px] font-bold text-blue-400 border-r border-slate-800 pl-8">Act Digital</td>
-               {weeks.map(w => <td key={w.id} className="px-1 py-1"><InputCell weekId={w.id} field="bookings" value={actuals[w.id]?.bookings} onUpdateActual={onUpdateActual} /></td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatNumber(getTotalActual('bookings'))}</td>
-            </tr>
-            <tr className="hover:bg-blue-900/10">
-               <td className="px-2 py-1 text-left text-[10px] font-bold text-emerald-400 border-r border-slate-800 pl-8">Act Presales</td>
-               {weeks.map(w => <td key={w.id} className="px-1 py-1"><InputCell weekId={w.id} field="presalesBookings" value={actuals[w.id]?.presalesBookings} onUpdateActual={onUpdateActual} /></td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatNumber(getTotalActual('presalesBookings'))}</td>
-            </tr>
-            <tr className="hover:bg-blue-900/10">
-               <td className="px-2 py-1 text-left text-[10px] font-bold text-pink-400 border-r border-slate-800 pl-8">Act Brand</td>
-               {weeks.map(w => <td key={w.id} className="px-1 py-1"><InputCell weekId={w.id} field="brandBookings" value={actuals[w.id]?.brandBookings} onUpdateActual={onUpdateActual} /></td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatNumber(getTotalActual('brandBookings'))}</td>
-            </tr>
-            <tr className="hover:bg-blue-900/10">
-               <td className="px-2 py-1 text-left text-[10px] font-bold text-violet-400 border-r border-slate-800 pl-8">Act Referral</td>
-               {weeks.map(w => <td key={w.id} className="px-1 py-1"><InputCell weekId={w.id} field="referralBookings" value={actuals[w.id]?.referralBookings} onUpdateActual={onUpdateActual} /></td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatNumber(getTotalActual('referralBookings'))}</td>
-            </tr>
-            <tr className="hover:bg-blue-900/10 border-b border-slate-800">
-               <td className="px-2 py-1 text-left text-[10px] font-bold text-amber-400 border-r border-slate-800 pl-8">Act CP</td>
-               {weeks.map(w => <td key={w.id} className="px-1 py-1"><InputCell weekId={w.id} field="cpBookings" value={actuals[w.id]?.cpBookings} onUpdateActual={onUpdateActual} /></td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatNumber(getTotalActual('cpBookings'))}</td>
-            </tr>
-            
-             {/* --- SPENDS GROUP --- */}
-            <tr className="hover:bg-slate-800/40 bg-slate-900 border-t border-slate-800">
-               <td rowSpan={3} className="sticky left-0 bg-slate-900 px-4 py-2 text-left z-10 border-r border-slate-800 border-b align-top pt-4">
-                 <RowHeader label={viewMode === ViewMode.AGENCY ? 'All-in Spends' : 'Region Spends'} />
-               </td>
-               <td className="px-2 py-1 text-left text-[10px] text-slate-500 border-r border-slate-800 pl-8">Target</td>
-               {weeks.map(w => <td key={w.id} className="px-2 py-1 text-slate-500">{formatCurrency(viewMode === ViewMode.AGENCY ? w.spendsAllIn : w.spendsBase)}</td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 text-slate-500 border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatCurrency(weeks.reduce((a,b) => a+(viewMode === ViewMode.AGENCY ? b.spendsAllIn : b.spendsBase), 0))}</td>
-            </tr>
-             <tr className="hover:bg-blue-900/10">
-               <td className="px-2 py-1 text-left text-[10px] font-bold text-blue-400 border-r border-slate-800 pl-8">Actual</td>
-               {weeks.map(w => {
-                 const rawSpends = actuals[w.id]?.spends;
-                 const displayValue = rawSpends !== undefined ? Math.round(rawSpends * taxMult) : undefined;
-                 return (
-                    <td key={w.id} className="px-1 py-1">
-                      <InputCell 
-                        weekId={w.id} 
-                        field="spends" 
-                        value={displayValue} 
-                        onUpdateActual={(wid, f, val) => onUpdateActual(wid, f, val / taxMult)} 
-                      />
-                    </td>
-                 );
-               })}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 font-bold text-white border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">{formatCurrency(getTotalActual('spends'))}</td>
-            </tr>
-             <tr className="bg-slate-900 border-b border-slate-800">
-               <td className="px-2 py-1 text-left text-[10px] text-slate-600 border-r border-slate-800 pl-8">Cumul. Act</td>
-               {weeks.map((w, i) => <td key={w.id} className="px-2 py-1 text-slate-600 italic">{formatCurrency(getCumulativeActuals(i, 'spends'))}</td>)}
-               <td className="sticky right-0 bg-slate-900 px-4 py-1 border-l border-slate-800 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">-</td>
-            </tr>
-
-            {/* --- RATIOS HEADER --- */}
-             <tr className="bg-amber-950/20">
-              <td colSpan={weeks.length + 3} className="py-2 px-4 text-[10px] font-bold text-amber-500 uppercase tracking-widest text-left border-y border-amber-900/50">
-                Efficiency Ratios (Calculated Actuals)
-              </td>
-            </tr>
-
-            {/* CPL ROW */}
-            <tr className="hover:bg-slate-800/30 transition-colors">
-               <td className="sticky left-0 bg-slate-900 px-4 py-2 text-left font-bold text-slate-300 z-10 border-r border-slate-800">CPL</td>
-               <td className="px-2 py-1 text-left text-[10px] text-slate-500 border-r border-slate-800 pl-8">Avg</td>
-               {weeks.map(w => {
-                 const leads = actuals[w.id]?.leads || 0;
-                 const spends = (actuals[w.id]?.spends || 0) * taxMult;
-                 return <td key={w.id} className="px-2 py-2 font-medium text-slate-300">{leads > 0 ? formatCurrency(spends / leads) : '-'}</td>
-               })}
-               <td className="sticky right-0 bg-slate-900 px-4 py-2 border-l border-slate-800 font-bold text-white shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">
-                 {formatCurrency(getTotalActual('spends') / (getTotalActual('leads') || 1))}
-               </td>
-            </tr>
-
-            {/* CPW ROW */}
-             <tr className="hover:bg-slate-800/30 transition-colors">
-               <td className="sticky left-0 bg-slate-900 px-4 py-2 text-left font-bold text-slate-300 z-10 border-r border-slate-800">CPW (Walkin)</td>
-               <td className="px-2 py-1 text-left text-[10px] text-slate-500 border-r border-slate-800 pl-8">Avg</td>
-               {weeks.map(w => {
-                 const ad = actuals[w.id]?.ad || 0;
-                 const spends = (actuals[w.id]?.spends || 0) * taxMult;
-                 return <td key={w.id} className="px-2 py-2 font-medium text-slate-300">{ad > 0 ? formatCurrency(spends / ad) : '-'}</td>
-               })}
-               <td className="sticky right-0 bg-slate-900 px-4 py-2 border-l border-slate-800 font-bold text-white shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">
-                 {formatCurrency(getTotalActual('spends') / (getTotalActual('ad') || 1))}
-               </td>
-            </tr>
-
-             {/* CPB ROW (Direct only for now) */}
-             <tr className="hover:bg-slate-800/30 transition-colors">
-               <td className="sticky left-0 bg-slate-900 px-4 py-2 text-left font-bold text-slate-300 z-10 border-r border-slate-800">CPB (Digital)</td>
-               <td className="px-2 py-1 text-left text-[10px] text-slate-500 border-r border-slate-800 pl-8">Avg</td>
-               {weeks.map(w => {
-                 const bk = actuals[w.id]?.bookings || 0; // Digital only
-                 const spends = (actuals[w.id]?.spends || 0) * taxMult;
-                 return <td key={w.id} className="px-2 py-2 font-medium text-slate-300">{bk > 0 ? formatCurrency(spends / bk) : '-'}</td>
-               })}
-               <td className="sticky right-0 bg-slate-900 px-4 py-2 border-l border-slate-800 font-bold text-white shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">
-                 {formatCurrency(getTotalActual('spends') / (getTotalActual('bookings') || 1))}
-               </td>
-            </tr>
-
-            {/* L2W ROW */}
-            <tr className="hover:bg-slate-800/30 transition-colors">
-               <td className="sticky left-0 bg-slate-900 px-4 py-2 text-left font-bold text-slate-300 z-10 border-r border-slate-800">L2W %</td>
-               <td className="px-2 py-1 text-left text-[10px] text-slate-500 border-r border-slate-800 pl-8">Avg</td>
-               {weeks.map(w => {
-                 const leads = actuals[w.id]?.leads || 0;
-                 const ad = actuals[w.id]?.ad || 0;
-                 return <td key={w.id} className="px-2 py-2 font-medium text-slate-300">{leads > 0 ? formatPercent((ad / leads) * 100) : '-'}</td>
-               })}
-               <td className="sticky right-0 bg-slate-900 px-4 py-2 border-l border-slate-800 font-bold text-white shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">
-                 {formatPercent((getTotalActual('ad') / (getTotalActual('leads') || 1)) * 100)}
-               </td>
-            </tr>
-
-             {/* WTB ROW */}
-             <tr className="hover:bg-slate-800/30 transition-colors border-b border-slate-800">
-               <td className="sticky left-0 bg-slate-900 px-4 py-2 text-left font-bold text-slate-300 z-10 border-r border-slate-800">WTB % (Dig)</td>
-               <td className="px-2 py-1 text-left text-[10px] text-slate-500 border-r border-slate-800 pl-8">Avg</td>
-               {weeks.map(w => {
-                 const ad = actuals[w.id]?.ad || 0;
-                 const bk = actuals[w.id]?.bookings || 0;
-                 return <td key={w.id} className="px-2 py-2 font-medium text-slate-300">{ad > 0 ? formatPercent((bk / ad) * 100) : '-'}</td>
-               })}
-               <td className="sticky right-0 bg-slate-900 px-4 py-2 border-l border-slate-800 font-bold text-white shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]">
-                 {formatPercent((getTotalActual('bookings') / (getTotalActual('ad') || 1)) * 100)}
-               </td>
-            </tr>
-
           </tbody>
         </table>
       </div>

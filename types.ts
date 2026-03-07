@@ -4,16 +4,16 @@ export interface PlanningData {
   ats: number; // Crores
   digitalContributionPercent: number;
   presalesContributionPercent: number;
-  brandContributionPercent: number; // New
-  referralContributionPercent: number; // New
-  cpContributionPercent: number; // New
+  brandContributionPercent: number;
+  referralContributionPercent: number;
+  cpContributionPercent: number;
   ltwPercent: number; // Lead to Walkin
   wtbPercent: number; // Walkin to Booking
   cpl: number; // Cost per Lead (INR)
   taxPercent: number;
-  receivedBudget: number; // Now mandatory
-  calculationMode: 'revenue' | 'budget'; // New: Determines driving metric
-  budgetInput: number; // New: Used when mode is 'budget'
+  receivedBudget: number;
+  calculationMode: 'revenue' | 'budget';
+  budgetInput: number;
 }
 
 export interface CalculatedMetrics {
@@ -37,12 +37,15 @@ export interface WeeklyData {
   id: number;
   weekLabel: string;
   dateRange: string;
-  // Simulation Inputs (Percentages)
+  startDate: string; // ISO String
+  monthLabel: string; // e.g. "Apr 2025"
+  quarterLabel: string; // e.g. "Q1 (Apr-Jun)"
+  halfYearLabel: string; // e.g. "H1 (Apr-Sep)"
+  
   spendDistribution: number;
   leadDistribution: number;
-  adConversion: number; // Planned L2W %
+  adConversion: number;
   
-  // Calculated Planned Values
   leads: number;
   cumulativeLeads: number;
   ap: number;
@@ -53,18 +56,17 @@ export interface WeeklyData {
   spendsAllIn: number;
 }
 
-// New Interface for Actual Performance Data
 export interface WeeklyActuals {
   weekId: number;
   leads?: number;
   ap?: number;
   ad?: number;
-  spends?: number; // Actual Base Spend
-  bookings?: number; // Digital Bookings
-  presalesBookings?: number; // Presales/Offline Bookings
-  brandBookings?: number; // Brand (ATL/BTL) Bookings
-  referralBookings?: number; // Referral Bookings
-  cpBookings?: number; // Channel Partner Bookings
+  spends?: number;
+  bookings?: number;
+  presalesBookings?: number;
+  brandBookings?: number;
+  referralBookings?: number;
+  cpBookings?: number;
 }
 
 export interface MediaChannel {
@@ -74,25 +76,31 @@ export interface MediaChannel {
   estimatedCpl: number;
   budget?: number; 
   leads?: number;
-  // Advanced Funnel Metrics
-  capiPercent: number; // Qualified Leads %
-  capiToApPercent: number; // Conversion to Site Visit Proposed
-  apToAdPercent: number; // Conversion to Walkin
+  capiPercent: number;
+  capiToApPercent: number;
+  apToAdPercent: number;
   isCustom?: boolean;
 }
 
-// NEW: Channel Level Performance Tracking
 export interface ChannelPerformance {
   channelId: string;
   spends: number;
-  leads: number; // Grand Total
+  leads: number;
   openAttempted: number;
   contacted: number;
   assignedToSales: number;
-  ap: number; // Appointment Proposed
-  ad: number; // Site Visit Done
+  ap: number;
+  ad: number;
   bookings: number;
   lost: number;
+}
+
+export interface LogEntry {
+  id: string;
+  timestamp: string;
+  user: string;
+  section: string;
+  message: string;
 }
 
 export interface Poc {
@@ -107,18 +115,26 @@ export interface Project {
   poc: string;
   status: 'Planning' | 'Active' | 'Completed';
   plan: PlanningData;
-  otherSpends: number; // New: Non-performance marketing spends
-  manualMediaBudget?: number; // Override for simulation
+  otherSpends: number;
+  manualMediaBudget?: number;
   mediaPlan: MediaChannel[]; 
-  channelPerformance: ChannelPerformance[]; // New field
+  channelPerformance: ChannelPerformance[];
   weeks: WeeklyData[];
   actuals: Record<number, WeeklyActuals>; 
+  logs: LogEntry[];
   isLocked: boolean; 
 }
 
 export enum ViewMode {
-  BRAND = 'BRAND', // Shows Base Spends
-  AGENCY = 'AGENCY' // Shows All-in Spends
+  BRAND = 'BRAND',
+  AGENCY = 'AGENCY'
+}
+
+export enum TimeGranularity {
+  WEEKLY = 'WoW',
+  MONTHLY = 'MoM',
+  QUARTERLY = 'QoQ',
+  HALF_YEARLY = 'H1/H2'
 }
 
 export enum TabView {
@@ -126,14 +142,14 @@ export enum TabView {
   MEDIA_MIX = 'MEDIA_MIX',
   WOW_PLAN = 'WOW_PLAN',
   PERFORMANCE = 'PERFORMANCE',
-  CHANNEL_TRACKER = 'CHANNEL_TRACKER' // New Tab
+  CHANNEL_TRACKER = 'CHANNEL_TRACKER',
+  HISTORY = 'HISTORY'
 }
 
-// --- AUTH TYPES ---
 export enum UserRole {
-  GM = 'General Manager', // View All, Edit All, Delete Project, Unlock Plan
-  SM = 'Senior Manager',  // View All, Edit Media/WoW, Read Only Plan, No Delete
-  MANAGER = 'Manager'     // View Assigned Only, Edit Actuals Only, Read Only Plan/Media/WoW
+  GM = 'General Manager',
+  SM = 'Senior Manager',
+  MANAGER = 'Manager'
 }
 
 export interface User {

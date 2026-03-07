@@ -277,10 +277,11 @@ export const MediaMixSimulator: React.FC<Props> = ({
                     {Math.round(channel.ad).toLocaleString()}
                   </td>
                   
-                  <td className="px-2 py-2 text-center bg-slate-900 sticky right-0 z-40 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)] border-l border-slate-800">
+                  <td className="px-2 py-2 text-center bg-slate-900 sticky right-0 z-50 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)] border-l border-slate-800 w-16">
                     {deleteConfirmId === channel.id ? (
                       <div className="flex items-center justify-center gap-1 animate-in fade-in zoom-in duration-200">
                          <button 
+                           type="button"
                            onClick={(e) => { 
                              e.stopPropagation(); 
                              onDeleteChannel(channel.id); 
@@ -291,6 +292,7 @@ export const MediaMixSimulator: React.FC<Props> = ({
                            Confirm
                          </button>
                          <button 
+                           type="button"
                            onClick={(e) => { 
                              e.stopPropagation(); 
                              setDeleteConfirmId(null); 
@@ -308,7 +310,7 @@ export const MediaMixSimulator: React.FC<Props> = ({
                           setDeleteConfirmId(channel.id); 
                           setShowAddMenu(false);
                         }}
-                        className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded-md transition-all cursor-pointer active:scale-95"
+                        className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded-md transition-all cursor-pointer active:scale-95 z-50 relative"
                         title="Delete Channel"
                       >
                         <Trash2 className="w-4 h-4 pointer-events-none" />
